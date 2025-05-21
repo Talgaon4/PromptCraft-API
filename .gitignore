@@ -1,0 +1,6 @@
+.env
+*.log
+__pycache__/
+data/
+test_data/
+streamlit_data/
