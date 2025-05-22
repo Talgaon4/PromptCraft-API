@@ -1,50 +1,88 @@
 # prompt_optimizer/core/optimizer_engine.py
 
-"""Engine for optimizing prompts based on feedback."""
+"""Engine for optimizing prompts based on feedback with configuration support."""
 
 from typing import Dict, List, Optional, Any, Union
 
 from prompt_optimizer.core.models import Prompt
 from prompt_optimizer.core.prompt_manager import PromptManager
 from prompt_optimizer.core.feedback_collector import FeedbackCollector
-from prompt_optimizer.config import OptimizerConfig
+from prompt_optimizer.config import config, create_config
 from prompt_optimizer.services.llm_service import LLMService
 
 
 class OptimizerEngine:
-    """Engine for optimizing prompts based on feedback."""
+    """Engine for optimizing prompts based on feedback with configurable settings."""
 
     def __init__(
         self,
         prompt_manager: PromptManager,
         feedback_collector: FeedbackCollector,
-        optimization_threshold: int = 10,
-        auto_apply: bool = False,
-        strategy_name: str = "simple_ai"
+        config_instance=None,
+        **overrides
     ):
         """Initialize the optimizer engine.
         
         Args:
             prompt_manager: Manager for prompt operations
             feedback_collector: Collector for feedback data
-            optimization_threshold: Minimum feedback needed for optimization
-            auto_apply: Whether to automatically apply optimizations
-            strategy_name: Name of the strategy to use (from config)
+            config_instance: Custom config instance (optional)
+            **overrides: Direct parameter overrides:
+                - optimization_threshold: Minimum feedback needed for optimization
+                - auto_apply: Whether to automatically apply optimizations
+                - strategy_name: Name of the strategy to use
+                - confidence_level: Statistical confidence level
         """
         self.prompt_manager = prompt_manager
         self.feedback_collector = feedback_collector
-        self.optimization_threshold = optimization_threshold
-        self.auto_apply = auto_apply
         
-        # Create LLM service
-        self.llm_service = LLMService()
+        # Handle configuration
+        if overrides:
+            # Create config with overrides
+            self.config = create_config(**overrides)
+        else:
+            # Use provided config or global config
+            self.config = config_instance or config
         
-        # Use the config to create the appropriate strategy
-        self.config = OptimizerConfig(
-            strategy=strategy_name,
-            min_feedback_samples=optimization_threshold
-        )
-        self.strategy = self.config.create_strategy(self.llm_service)
+        # Extract settings from config
+        self.optimization_threshold = self.config.OPTIMIZATION_THRESHOLD
+        self.auto_apply = self.config.AUTO_APPLY
+        self.strategy_name = self.config.DEFAULT_STRATEGY
+        self.confidence_level = self.config.CONFIDENCE_LEVEL
+        
+        # Create LLM service with same config
+        self.llm_service = LLMService(config_instance=self.config)
+        
+        # Import and create strategy based on config
+        self.strategy = self._create_strategy()
+
+    def _create_strategy(self):
+        """Create the optimization strategy based on configuration."""
+        from prompt_optimizer.strategies.simple_ai_strategy import SimpleAIStrategy
+        from prompt_optimizer.strategies.reward_model_bandit import RewardModelBanditStrategy
+        
+        if self.strategy_name == "simple_ai":
+            return SimpleAIStrategy(
+                llm_service=self.llm_service,
+                min_feedback_samples=self.config.SIMPLE_AI_MIN_SAMPLES,
+                min_positive_rate=self.config.SIMPLE_AI_MIN_POSITIVE_RATE
+            )
+        elif self.strategy_name == "reward_model_bandit":
+            return RewardModelBanditStrategy(
+                llm_service=self.llm_service,
+                model_dir=f"{self.config.DEFAULT_STORAGE_DIR}/models",
+                optimization_threshold=self.config.CONFIDENCE_LEVEL,
+                min_feedback_samples=self.config.REWARD_MODEL_MIN_SAMPLES,
+                confidence_level=self.confidence_level,
+                max_candidates=self.config.REWARD_MODEL_MAX_CANDIDATES
+            )
+        else:
+            # Default to simple AI
+            print(f"Warning: Unknown strategy '{self.strategy_name}', using 'simple_ai'")
+            return SimpleAIStrategy(
+                llm_service=self.llm_service,
+                min_feedback_samples=self.config.SIMPLE_AI_MIN_SAMPLES
+            )
 
     def check_optimization_readiness(self, prompt_id: str) -> Dict[str, Any]:
         """Check if a prompt is ready for optimization.
@@ -70,7 +108,11 @@ class OptimizerEngine:
             "feedback_count": len(feedback_data),
             "threshold": self.optimization_threshold,
             "strategy_name": self.strategy.name,
-            "strategy_assessment": strategy_readiness
+            "strategy_assessment": strategy_readiness,
+            "config_info": {
+                "auto_apply": self.auto_apply,
+                "confidence_level": self.confidence_level
+            }
         }
 
     def generate_optimization(self, prompt_id: str, force: bool = False) -> Optional[Union[str, Dict[str, Any]]]:
@@ -129,7 +171,7 @@ class OptimizerEngine:
             return None
             
         except Exception as e:
-            # Re-raise the exception
+            print(f"Optimization failed: {str(e)}")
             raise
 
     def apply_optimization(self, prompt_id: str, optimized_text: str) -> str:
@@ -159,14 +201,7 @@ class OptimizerEngine:
         return updated_prompt.id
 
     def get_optimization_history(self, prompt_id: str) -> List[Dict[str, Any]]:
-        """Get the optimization history for a prompt.
-        
-        Args:
-            prompt_id: ID of the prompt
-            
-        Returns:
-            List of optimization events
-        """
+        """Get the optimization history for a prompt."""
         # Get the prompt history
         history = self.prompt_manager.get_prompt_history(prompt_id)
         
@@ -188,44 +223,36 @@ class OptimizerEngine:
             
         return result
 
-    def compare_versions(self, original_id: str, optimized_id: str) -> Dict[str, Any]:
-        """Compare an original prompt with its optimized version.
+    def update_settings(self, **new_settings):
+        """Update optimizer settings at runtime.
         
         Args:
-            original_id: ID of the original prompt
-            optimized_id: ID of the optimized prompt
-            
-        Returns:
-            Comparison information
+            **new_settings: Settings to update
         """
-        original = self.prompt_manager.get_prompt(original_id)
-        optimized = self.prompt_manager.get_prompt(optimized_id)
+        updated = []
         
-        if not original or not optimized:
-            raise ValueError(f"One or both prompts not found: {original_id}, {optimized_id}")
+        if 'optimization_threshold' in new_settings:
+            self.optimization_threshold = new_settings['optimization_threshold']
+            updated.append('optimization_threshold')
             
-        # Get feedback stats for both
-        original_stats = self.feedback_collector.calculate_feedback_stats(original_id)
-        optimized_stats = self.feedback_collector.calculate_feedback_stats(optimized_id)
+        if 'auto_apply' in new_settings:
+            self.auto_apply = new_settings['auto_apply']
+            updated.append('auto_apply')
+            
+        if 'strategy_name' in new_settings and new_settings['strategy_name'] != self.strategy_name:
+            self.strategy_name = new_settings['strategy_name']
+            self.strategy = self._create_strategy()  # Recreate strategy
+            updated.append('strategy_name')
         
-        # Calculate improvement
-        original_positive_rate = original_stats.get("positive_ratio", 0)
-        optimized_positive_rate = optimized_stats.get("positive_ratio", 0)
-        improvement = optimized_positive_rate - original_positive_rate
-        
+        if updated:
+            print(f"Optimizer settings updated: {updated}")
+    
+    def get_settings(self) -> Dict[str, Any]:
+        """Get current optimizer settings."""
         return {
-            "original": {
-                "id": original_id,
-                "text": original.text,
-                "version": original.version,
-                "stats": original_stats
-            },
-            "optimized": {
-                "id": optimized_id,
-                "text": optimized.text,
-                "version": optimized.version,
-                "stats": optimized_stats
-            },
-            "improvement": improvement,
-            "improvement_percentage": f"{improvement * 100:.1f}%" if original_positive_rate > 0 else "N/A"
+            'optimization_threshold': self.optimization_threshold,
+            'auto_apply': self.auto_apply,
+            'strategy_name': self.strategy_name,
+            'confidence_level': self.confidence_level,
+            'llm_settings': self.llm_service.get_settings()
         }

@@ -1,85 +1,100 @@
-"""LLM service implementation using OpenAI."""
+"""LLM service implementation using OpenAI with configuration support."""
 
-from typing import Dict, Any, Optional, List  # Added List import
+from typing import Dict, Any, Optional, List
 import os
 from dotenv import load_dotenv
-from openai import OpenAI  # Updated import for new OpenAI API
+from openai import OpenAI
+from prompt_optimizer.config import config
 
 # Load environment variables from .env file
 load_dotenv()
 
 class LLMService:
-    """Interface for LLM generation using OpenAI."""
+    """Interface for LLM generation using OpenAI with configurable settings."""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo"):
+    def __init__(self, config_instance=None, **overrides):
         """Initialize the LLM service.
         
         Args:
-            api_key: OpenAI API key. If None, will try to get from environment.
-            model: The OpenAI model to use.
+            config_instance: Custom config instance (optional)
+            **overrides: Direct parameter overrides
+                - api_key: OpenAI API key
+                - model: OpenAI model name
+                - max_tokens: Maximum tokens to generate
+                - temperature: Generation temperature
+                - system_prompt: Default system prompt
         """
-        # Use provided API key or get from environment
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        # Use provided config or global config
+        self.config = config_instance or config
+        
+        # Apply any direct overrides
+        self.api_key = overrides.get('api_key', self.config.OPENAI_API_KEY)
+        self.model = overrides.get('model', self.config.LLM_MODEL)
+        self.max_tokens = overrides.get('max_tokens', self.config.MAX_TOKENS)
+        self.temperature = overrides.get('temperature', self.config.TEMPERATURE)
+        self.system_prompt = overrides.get('system_prompt', 
+            getattr(self.config, 'SYSTEM_PROMPT', "You are a helpful assistant. Be concise."))
+        
+        # Validation
         if not self.api_key:
             raise ValueError("OpenAI API key is required. Set it in the .env file or provide it as an argument.")
             
-        # Configure the OpenAI client - updated for newer API
+        # Configure the OpenAI client
         self.client = OpenAI(api_key=self.api_key)
-        self.model = model
-        
-        # Token efficiency settings
-        self.max_tokens = 250  # Default max tokens to save usage
-        self.system_prompt = "You are a helpful assistant. Be concise."
         
         print(f"LLMService initialized with model: {self.model}")
         
-    def generate(self, prompt: str, temperature: float = 0.7, max_tokens: Optional[int] = None) -> str:
+    def generate(self, prompt: str, temperature: Optional[float] = None, 
+                max_tokens: Optional[int] = None) -> str:
         """Generate a response for the given prompt using OpenAI.
         
         Args:
             prompt: The prompt to send to the LLM
-            temperature: Controls randomness in generation
-            max_tokens: Maximum tokens to generate (overrides default)
+            temperature: Controls randomness (overrides config if provided)
+            max_tokens: Maximum tokens to generate (overrides config if provided)
             
         Returns:
             Generated text response
         """
         try:
-            # Use provided max_tokens or default
-            tokens_limit = max_tokens or self.max_tokens
+            # Use provided parameters or fall back to config
+            use_temperature = temperature if temperature is not None else self.temperature
+            use_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
             
-            # Updated API call format for OpenAI >= 1.0.0
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=tokens_limit
+                temperature=use_temperature,
+                max_tokens=use_max_tokens
             )
             
-            # Extract the response text - updated for newer API response format
             return response.choices[0].message.content.strip()
             
         except Exception as e:
-            print(f"Error generating response from OpenAI: {str(e)}")
+            error_msg = f"Error generating response from OpenAI: {str(e)}"
+            print(error_msg)
             return f"Error generating response: {str(e)}"
     
     def optimize_prompt(self, current_prompt: str, 
                        feedback_examples: List[Dict[str, Any]], 
-                       max_tokens: int = 100) -> str:
+                       max_tokens: Optional[int] = None) -> str:
         """Optimizes a prompt using a more token-efficient method.
         
         Args:
             current_prompt: The current prompt template
             feedback_examples: List of feedback examples
-            max_tokens: Max tokens for optimization response
+            max_tokens: Max tokens for optimization response (overrides config)
             
         Returns:
             Optimized prompt text
         """
-        # Create a simplified optimization request
+        # Use provided max_tokens or config value, with a smaller default for optimization
+        optimization_max_tokens = max_tokens or min(100, self.max_tokens)
+        
+        # Create optimization prompt
         optimization_prompt = f"""Improve this prompt: "{current_prompt}"
         
         Based on user feedback:
@@ -100,6 +115,33 @@ class LLMService:
         # Use higher temperature for creativity but strict token limit
         return self.generate(
             prompt=optimization_prompt,
-            temperature=0.8,
-            max_tokens=max_tokens
+            temperature=0.8,  # More creative for optimization
+            max_tokens=optimization_max_tokens
         )
+    
+    def get_settings(self) -> Dict[str, Any]:
+        """Get current LLM settings (useful for debugging)."""
+        return {
+            'model': self.model,
+            'max_tokens': self.max_tokens,
+            'temperature': self.temperature,
+            'system_prompt': self.system_prompt,
+            'api_key_set': bool(self.api_key)
+        }
+    
+    def update_settings(self, **new_settings):
+        """Update LLM settings at runtime.
+        
+        Args:
+            **new_settings: Settings to update (model, max_tokens, temperature, system_prompt)
+        """
+        if 'model' in new_settings:
+            self.model = new_settings['model']
+        if 'max_tokens' in new_settings:
+            self.max_tokens = new_settings['max_tokens']
+        if 'temperature' in new_settings:
+            self.temperature = new_settings['temperature']
+        if 'system_prompt' in new_settings:
+            self.system_prompt = new_settings['system_prompt']
+        
+        print(f"LLM settings updated: {new_settings}")
