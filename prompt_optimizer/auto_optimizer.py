@@ -1,6 +1,6 @@
 # prompt_optimizer/auto_optimizer.py
 
-"""Automatic optimization manager for multiple prompts/agents with configuration support."""
+"""Automatic optimization manager for multiple prompts/agents."""
 
 from typing import List, Dict, Any, Optional, Callable
 import threading
