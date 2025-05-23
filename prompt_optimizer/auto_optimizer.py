@@ -221,17 +221,26 @@ class AutoOptimizer:
     def _check_and_optimize_prompt(self, prompt_id: str):
         """Check if a prompt needs optimization and optimize if ready."""
         try:
-            # Get feedback data and check readiness using new API response format
-            feedback_data = self._get_all_feedback_for_prompt(prompt_id)
-            readiness = self.strategy.is_ready_for_optimization(feedback_data)
+            # Get optimization stats using new API response format
+            stats_result = self.api.get_optimization_stats(prompt_id)
+            
+            if not stats_result.success:
+                self.logger.error(f"Failed to get optimization stats for {prompt_id}: {stats_result.message}")
+                if stats_result.errors:
+                    for error in stats_result.errors:
+                        self.logger.error(f"  Error: {error}")
+                return
+            
+            readiness_info = stats_result.readiness_info
+            is_ready = readiness_info.get("is_ready", False)
+            feedback_count = readiness_info.get("feedback_count", 0)
             
             # Log readiness assessment
-            self.logger.info(f"Checked prompt {prompt_id}: Ready={readiness.get('ready', False)}, "
-                           f"Feedback count={len(feedback_data)}, "
-                           f"Reason={readiness.get('reason', 'Unknown')}")
+            self.logger.info(f"Checked prompt {prompt_id}: Ready={is_ready}, "
+                           f"Feedback count={feedback_count}")
             
             # Try to optimize if ready
-            if readiness.get("ready", False):
+            if is_ready:
                 optimization_result = self._optimize_prompt(prompt_id)
                 if optimization_result:
                     self.logger.info(f"Successfully optimized prompt {prompt_id} -> {optimization_result}")
@@ -269,6 +278,11 @@ class AutoOptimizer:
                     self.logger.debug(f"Readiness info for {prompt_id}: "
                                     f"feedback_count={readiness.get('feedback_count', 0)}, "
                                     f"is_ready={readiness.get('is_ready', False)}")
+                
+                # Log errors if any
+                if result.errors:
+                    for error in result.errors:
+                        self.logger.error(f"  Error: {error}")
                 
                 return None
                 
@@ -352,25 +366,36 @@ class AutoOptimizer:
                 # Update last check time
                 self.monitored_prompts[prompt_id] = datetime.now()
                 
-                # Check and potentially optimize
-                feedback_data = self._get_all_feedback_for_prompt(prompt_id)
-                readiness = self.strategy.is_ready_for_optimization(feedback_data)
+                # Check optimization readiness
+                stats_result = self.api.get_optimization_stats(prompt_id)
+                
+                if not stats_result.success:
+                    results[prompt_id] = {
+                        'prompt_id': prompt_id,
+                        'error': stats_result.message,
+                        'optimized': False
+                    }
+                    continue
+                
+                readiness_info = stats_result.readiness_info
+                is_ready = readiness_info.get('is_ready', False)
+                feedback_count = readiness_info.get('feedback_count', 0)
                 
                 result = {
                     'prompt_id': prompt_id,
-                    'feedback_count': len(feedback_data),
-                    'ready_for_optimization': readiness.get('ready', False),
-                    'reason': readiness.get('reason', 'Unknown'),
+                    'feedback_count': feedback_count,
+                    'ready_for_optimization': is_ready,
+                    'reason': stats_result.message,
                     'optimized': False,
                     'new_prompt_id': None
                 }
                 
                 # Try to optimize if ready
-                if readiness.get('ready', False):
-                    optimized_result = self._optimize_prompt(prompt_id)
-                    if optimized_result:
+                if is_ready:
+                    optimization_result = self._optimize_prompt(prompt_id)
+                    if optimization_result:
                         result['optimized'] = True
-                        result['new_prompt_id'] = optimized_result
+                        result['new_prompt_id'] = optimization_result
                 
                 results[prompt_id] = result
                 

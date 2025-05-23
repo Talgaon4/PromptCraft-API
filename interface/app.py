@@ -8,12 +8,16 @@ import logging
 from datetime import datetime
 import time
 from dotenv import load_dotenv
+from prompt_optimizer.utils.logging import setup_logging
 
 load_dotenv()  # Load environment variables from .env file
 
 # Add the project root to the Python path so we can import the package
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Setup logging
+setup_logging(log_dir="./streamlit_logs")
+logger = logging.getLogger(__name__)
 # Import with proper error handling
 try:
     from prompt_optimizer.api import PromptOptimizer
