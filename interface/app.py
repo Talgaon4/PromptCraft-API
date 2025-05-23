@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 try:
     from prompt_optimizer.api import PromptOptimizer
     from prompt_optimizer.config import OptimizerConfig
+    from prompt_optimizer.response_objects import PromptResult, OptimizationResult, ValidationResult, OperationResult
     from prompt_optimizer.exceptions import (
         PromptCraftError, PromptNotFoundError, ResponseNotFoundError,
         OptimizationError, LLMError, ValidationError, StorageError
@@ -108,7 +109,7 @@ def show_success(message):
     """Display success messages consistently."""
     st.success(f"✅ {message}")
 
-# Safe validation functions
+# Safe validation functions using new API
 def safe_validate_prompt_id(prompt_id):
     """Validate prompt ID with comprehensive error handling."""
     try:
@@ -119,12 +120,9 @@ def safe_validate_prompt_id(prompt_id):
         if not prompt_id:
             return False, "Prompt ID cannot be empty or whitespace"
         
-        is_valid = optimizer.validate_prompt_id(prompt_id)
-        return is_valid, "Valid prompt ID" if is_valid else "Prompt ID not found"
+        result = optimizer.validate_prompt_id(prompt_id)
+        return result.is_valid, result.message
         
-    except ValidationError as e:
-        logger.warning(f"Validation error for prompt ID {prompt_id}: {str(e)}")
-        return False, f"Invalid format: {str(e)}"
     except Exception as e:
         logger.error(f"Unexpected error validating prompt ID {prompt_id}: {str(e)}")
         return False, f"Validation error: {str(e)}"
@@ -135,13 +133,12 @@ def safe_check_optimization_readiness(prompt_id):
         if not prompt_id:
             return None, "Prompt ID is required"
         
-        stats = optimizer.get_optimization_stats(prompt_id)
-        return stats, None
+        result = optimizer.get_optimization_stats(prompt_id)
+        if result.success:
+            return result.data, None
+        else:
+            return None, result.message
         
-    except PromptNotFoundError as e:
-        return None, f"Prompt not found: {str(e)}"
-    except OptimizationError as e:
-        return None, f"Optimization check failed: {str(e)}"
     except Exception as e:
         logger.error(f"Unexpected error checking optimization for {prompt_id}: {str(e)}")
         return None, f"Unexpected error: {str(e)}"
@@ -149,9 +146,11 @@ def safe_check_optimization_readiness(prompt_id):
 def safe_get_prompt(prompt_id):
     """Safely get prompt with error handling."""
     try:
-        return optimizer.get_prompt(prompt_id), None
-    except PromptNotFoundError as e:
-        return None, f"Prompt not found: {str(e)}"
+        result = optimizer.get_prompt(prompt_id)
+        if result.success:
+            return result.data, None
+        else:
+            return None, result.message
     except Exception as e:
         logger.error(f"Error getting prompt {prompt_id}: {str(e)}")
         return None, f"Error retrieving prompt: {str(e)}"
@@ -188,32 +187,27 @@ with tab1:
     new_prompt_desc = st.text_input("Description", value="Text summarization prompt")
     
     if st.button("Create Prompt"):
-        try:
-            # Validate inputs
-            if not new_prompt_text.strip():
-                show_error("Prompt text cannot be empty", "warning")
-            elif len(new_prompt_text.strip()) < 5:
-                show_error("Prompt text is too short (minimum 5 characters)", "warning")
+        if not new_prompt_text.strip():
+            show_error("Prompt text cannot be empty", "warning")
+        elif len(new_prompt_text.strip()) < 5:
+            show_error("Prompt text is too short (minimum 5 characters)", "warning")
+        else:
+            with st.spinner("Creating prompt..."):
+                result = optimizer.register_prompt(
+                    text=new_prompt_text.strip(), 
+                    description=new_prompt_desc.strip()
+                )
+            
+            if result.success:
+                show_success(f"Prompt created with ID: {result.prompt_id}")
+                st.session_state.last_created_prompt_id = result.prompt_id
+                logger.info(f"Created prompt {result.prompt_id}")
             else:
-                with st.spinner("Creating prompt..."):
-                    prompt_id = optimizer.register_prompt(
-                        text=new_prompt_text.strip(), 
-                        description=new_prompt_desc.strip()
-                    )
-                
-                show_success(f"Prompt created with ID: {prompt_id}")
-                st.session_state.last_created_prompt_id = prompt_id
-                logger.info(f"Created prompt {prompt_id}")
-                
-        except ValidationError as e:
-            show_error(f"Validation error: {str(e)}", "warning")
-        except StorageError as e:
-            show_error(f"Storage error: {str(e)}")
-            st.info("💡 This might be a temporary issue. Please try again.")
-        except Exception as e:
-            logger.error(f"Unexpected error creating prompt: {str(e)}")
-            show_error(f"Unexpected error: {str(e)}")
-            st.session_state.error_count = st.session_state.get('error_count', 0) + 1
+                show_error(f"Failed to create prompt: {result.message}")
+                if result.errors:
+                    for error in result.errors:
+                        st.error(f"  • {error}")
+                st.session_state.error_count = st.session_state.get('error_count', 0) + 1
     
     # Display existing prompts
     st.subheader("Existing Prompts")
@@ -251,14 +245,11 @@ with tab1:
         # Show fallback with last created prompt
         if hasattr(st.session_state, "last_created_prompt_id"):
             st.info("Showing last created prompt as fallback:")
-            try:
-                prompt_data, error = safe_get_prompt(st.session_state.last_created_prompt_id)
-                if prompt_data:
-                    st.code(f"ID: {st.session_state.last_created_prompt_id}\nText: {prompt_data['text']}\nDescription: {prompt_data['description']}")
-                elif error:
-                    show_error(f"Could not load fallback prompt: {error}")
-            except Exception as fallback_error:
-                logger.error(f"Fallback failed: {str(fallback_error)}")
+            prompt_data, error = safe_get_prompt(st.session_state.last_created_prompt_id)
+            if prompt_data:
+                st.code(f"ID: {st.session_state.last_created_prompt_id}\nText: {prompt_data['text']}\nDescription: {prompt_data['description']}")
+            elif error:
+                show_error(f"Could not load fallback prompt: {error}")
                 
     except Exception as e:
         logger.error(f"Unexpected error loading prompts: {str(e)}")
@@ -282,101 +273,97 @@ with tab2:
         if is_valid:
             show_success(message)
             
-            try:
-                prompt_data, error = safe_get_prompt(prompt_id_to_test)
+            prompt_data, error = safe_get_prompt(prompt_id_to_test)
+            
+            if prompt_data:
+                st.code(prompt_data['text'])
                 
-                if prompt_data:
-                    st.code(prompt_data['text'])
+                # Extract placeholders safely
+                try:
+                    placeholders = re.findall(r'\{([^{}]+)\}', prompt_data['text'])
+                except Exception as regex_error:
+                    logger.warning(f"Regex error extracting placeholders: {str(regex_error)}")
+                    placeholders = []
+                    show_error("Could not extract placeholders from prompt", "warning")
+                
+                # Create input fields for each placeholder
+                placeholder_values = {}
+                if placeholders:
+                    st.subheader("Fill in Placeholders")
+                    for placeholder in placeholders:
+                        placeholder_values[placeholder] = st.text_area(
+                            f"Enter value for {{{placeholder}}}", 
+                            value="This is a sample text that needs to be processed.",
+                            key=f"placeholder_{placeholder}"
+                        )
+                
+                # Format the prompt safely
+                try:
+                    formatted_prompt = prompt_data['text']
+                    for placeholder, value in placeholder_values.items():
+                        if value.strip():  # Only replace if value is not empty
+                            formatted_prompt = formatted_prompt.replace(f"{{{placeholder}}}", value)
                     
-                    # Extract placeholders safely
-                    try:
-                        placeholders = re.findall(r'\{([^{}]+)\}', prompt_data['text'])
-                    except Exception as regex_error:
-                        logger.warning(f"Regex error extracting placeholders: {str(regex_error)}")
-                        placeholders = []
-                        show_error("Could not extract placeholders from prompt", "warning")
+                    st.subheader("Formatted Prompt")
+                    st.write(formatted_prompt)
                     
-                    # Create input fields for each placeholder
-                    placeholder_values = {}
-                    if placeholders:
-                        st.subheader("Fill in Placeholders")
-                        for placeholder in placeholders:
-                            placeholder_values[placeholder] = st.text_area(
-                                f"Enter value for {{{placeholder}}}", 
-                                value="This is a sample text that needs to be processed.",
-                                key=f"placeholder_{placeholder}"
+                except Exception as format_error:
+                    logger.error(f"Error formatting prompt: {str(format_error)}")
+                    show_error(f"Error formatting prompt: {str(format_error)}")
+                    formatted_prompt = prompt_data['text']  # Fallback to original
+                
+                # Simulate AI response
+                st.subheader("Simulate AI Response")
+                ai_response = st.text_area(
+                    "Enter or simulate the AI response", 
+                    value="This is a simulated response from an AI system.",
+                    height=100
+                )
+                
+                if st.button("Record Usage and Response"):
+                    if not ai_response.strip():
+                        show_error("AI response cannot be empty", "warning")
+                    else:
+                        # Record prompt usage
+                        with st.spinner("Recording prompt usage..."):
+                            usage_result = optimizer.record_prompt_use(
+                                prompt_id=prompt_id_to_test,
+                                formatted_text=formatted_prompt
                             )
-                    
-                    # Format the prompt safely
-                    try:
-                        formatted_prompt = prompt_data['text']
-                        for placeholder, value in placeholder_values.items():
-                            if value.strip():  # Only replace if value is not empty
-                                formatted_prompt = formatted_prompt.replace(f"{{{placeholder}}}", value)
                         
-                        st.subheader("Formatted Prompt")
-                        st.write(formatted_prompt)
-                        
-                    except Exception as format_error:
-                        logger.error(f"Error formatting prompt: {str(format_error)}")
-                        show_error(f"Error formatting prompt: {str(format_error)}")
-                        formatted_prompt = prompt_data['text']  # Fallback to original
-                    
-                    # Simulate AI response
-                    st.subheader("Simulate AI Response")
-                    ai_response = st.text_area(
-                        "Enter or simulate the AI response", 
-                        value="This is a simulated response from an AI system.",
-                        height=100
-                    )
-                    
-                    if st.button("Record Usage and Response"):
-                        if not ai_response.strip():
-                            show_error("AI response cannot be empty", "warning")
-                        else:
-                            try:
-                                # Record prompt usage
-                                with st.spinner("Recording prompt usage..."):
-                                    instance_id = optimizer.record_prompt_use(
-                                        prompt_id=prompt_id_to_test,
-                                        formatted_text=formatted_prompt
-                                    )
-                                
-                                # Record AI response
-                                with st.spinner("Recording response..."):
-                                    response_id = optimizer.record_response(
-                                        prompt_instance_id=instance_id,
-                                        content=ai_response.strip()
-                                    )
-                                
-                                show_success(f"Recorded prompt usage (Instance ID: {instance_id})")
-                                show_success(f"Recorded AI response (Response ID: {response_id})")
+                        if usage_result.success:
+                            show_success(f"Recorded prompt usage (Instance ID: {usage_result.data['instance_id']})")
+                            
+                            # Record AI response
+                            with st.spinner("Recording response..."):
+                                response_result = optimizer.record_response(
+                                    prompt_instance_id=usage_result.data['instance_id'],
+                                    content=ai_response.strip()
+                                )
+                            
+                            if response_result.success:
+                                show_success(f"Recorded AI response (Response ID: {response_result.data['response_id']})")
                                 
                                 # Store for the feedback tab
-                                st.session_state.last_response_id = response_id
+                                st.session_state.last_response_id = response_result.data['response_id']
                                 st.session_state.last_response_content = ai_response
                                 st.session_state.current_prompt_id = prompt_id_to_test
                                 
                                 logger.info(f"Recorded usage for prompt {prompt_id_to_test}")
-                                
-                            except ValidationError as e:
-                                show_error(f"Validation error: {str(e)}", "warning")
-                            except (PromptNotFoundError, ResponseNotFoundError) as e:
-                                show_error(f"Not found: {str(e)}")
-                            except StorageError as e:
-                                show_error(f"Storage error: {str(e)}")
-                                st.info("💡 This might be a temporary issue. Please try again.")
-                            except Exception as e:
-                                logger.error(f"Unexpected error recording usage: {str(e)}")
-                                show_error(f"Unexpected error: {str(e)}")
-                                st.session_state.error_count = st.session_state.get('error_count', 0) + 1
-                                
-                elif error:
-                    show_error(error)
-                    
-            except Exception as e:
-                logger.error(f"Error in testing tab: {str(e)}")
-                show_error(f"Error: {str(e)}")
+                            else:
+                                show_error(f"Failed to record response: {response_result.message}")
+                                if response_result.errors:
+                                    for error in response_result.errors:
+                                        st.error(f"  • {error}")
+                        else:
+                            show_error(f"Failed to record usage: {usage_result.message}")
+                            if usage_result.errors:
+                                for error in usage_result.errors:
+                                    st.error(f"  • {error}")
+                            st.session_state.error_count = st.session_state.get('error_count', 0) + 1
+                            
+            elif error:
+                show_error(error)
         else:
             show_error(message, "warning")
 
@@ -391,97 +378,86 @@ with tab3:
     )
     
     if response_id_for_feedback:
-        try:
-            # Display the response content if available
-            if (hasattr(st.session_state, "last_response_content") and 
-                st.session_state.get("last_response_id") == response_id_for_feedback):
-                st.subheader("Response Content")
-                st.write(st.session_state.last_response_content)
-                show_success("Valid response ID")
-            
-            # Collect feedback
-            st.subheader("Rate this response")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                is_positive = st.radio(
-                    "Was this response good?", 
-                    options=["Yes", "No"],
-                    help="Select whether the response was helpful/correct"
-                ) == "Yes"
-            
-            with col2:
-                score = st.slider(
-                    "Score (0-1)", 
-                    min_value=0.0, 
-                    max_value=1.0, 
-                    value=0.7, 
-                    step=0.1,
-                    help="0 = Very bad, 1 = Excellent"
+        # Display the response content if available
+        if (hasattr(st.session_state, "last_response_content") and 
+            st.session_state.get("last_response_id") == response_id_for_feedback):
+            st.subheader("Response Content")
+            st.write(st.session_state.last_response_content)
+            show_success("Valid response ID")
+        
+        # Collect feedback
+        st.subheader("Rate this response")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            is_positive = st.radio(
+                "Was this response good?", 
+                options=["Yes", "No"],
+                help="Select whether the response was helpful/correct"
+            ) == "Yes"
+        
+        with col2:
+            score = st.slider(
+                "Score (0-1)", 
+                min_value=0.0, 
+                max_value=1.0, 
+                value=0.7, 
+                step=0.1,
+                help="0 = Very bad, 1 = Excellent"
+            )
+        
+        comments = st.text_area(
+            "Comments (optional)", 
+            value="",
+            placeholder="What was good or bad about this response?",
+            height=100
+        )
+        
+        if st.button("Submit Feedback"):
+            with st.spinner("Recording feedback..."):
+                feedback_result = optimizer.record_feedback(
+                    response_id=response_id_for_feedback,
+                    is_positive=is_positive,
+                    score=score,
+                    comments=comments.strip() if comments else None
                 )
             
-            comments = st.text_area(
-                "Comments (optional)", 
-                value="",
-                placeholder="What was good or bad about this response?",
-                height=100
-            )
-            
-            if st.button("Submit Feedback"):
+            if feedback_result.success:
+                show_success(f"Feedback recorded with ID: {feedback_result.data['feedback_id']}")
+                
+                # Add to feedback history safely
                 try:
-                    with st.spinner("Recording feedback..."):
-                        feedback_id = optimizer.record_feedback(
-                            response_id=response_id_for_feedback,
-                            is_positive=is_positive,
-                            score=score,
-                            comments=comments.strip() if comments else None
-                        )
-                    
-                    show_success(f"Feedback recorded with ID: {feedback_id}")
-                    
-                    # Add to feedback history safely
-                    try:
-                        if 'current_prompt_id' in st.session_state:
-                            st.session_state.feedback_history.append({
-                                "id": feedback_id,
-                                "prompt_id": st.session_state.current_prompt_id,
-                                "response_id": response_id_for_feedback,
-                                "is_positive": is_positive,
-                                "score": score,
-                                "comments": comments,
-                                "timestamp": datetime.now()
-                            })
-                    except Exception as history_error:
-                        logger.warning(f"Failed to update feedback history: {str(history_error)}")
-                    
-                    # Check optimization readiness safely
                     if 'current_prompt_id' in st.session_state:
-                        prompt_id = st.session_state.current_prompt_id
-                        readiness, error = safe_check_optimization_readiness(prompt_id)
-                        
-                        if readiness and readiness.get("is_ready"):
-                            st.balloons()
-                            show_success("🎉 This prompt is now ready for optimization!")
-                        elif error:
-                            show_error(f"Could not check optimization readiness: {error}", "warning")
+                        st.session_state.feedback_history.append({
+                            "id": feedback_result.data['feedback_id'],
+                            "prompt_id": st.session_state.current_prompt_id,
+                            "response_id": response_id_for_feedback,
+                            "is_positive": is_positive,
+                            "score": score,
+                            "comments": comments,
+                            "timestamp": datetime.now()
+                        })
+                except Exception as history_error:
+                    logger.warning(f"Failed to update feedback history: {str(history_error)}")
+                
+                # Check optimization readiness safely
+                if 'current_prompt_id' in st.session_state:
+                    prompt_id = st.session_state.current_prompt_id
+                    readiness, error = safe_check_optimization_readiness(prompt_id)
                     
-                    logger.info(f"Recorded feedback {feedback_id} for response {response_id_for_feedback}")
-                        
-                except ValidationError as e:
-                    show_error(f"Validation error: {str(e)}", "warning")
-                except ResponseNotFoundError as e:
-                    show_error(f"Response not found: {str(e)}")
-                except StorageError as e:
-                    show_error(f"Storage error: {str(e)}")
-                    st.info("💡 This might be a temporary issue. Please try again.")
-                except Exception as e:
-                    logger.error(f"Unexpected error recording feedback: {str(e)}")
-                    show_error(f"Unexpected error: {str(e)}")
-                    st.session_state.error_count = st.session_state.get('error_count', 0) + 1
-                    
-        except Exception as e:
-            logger.error(f"Error in feedback tab: {str(e)}")
-            show_error(f"Error: {str(e)}")
+                    if readiness and readiness.get("is_ready"):
+                        st.balloons()
+                        show_success("🎉 This prompt is now ready for optimization!")
+                    elif error:
+                        show_error(f"Could not check optimization readiness: {error}", "warning")
+                
+                logger.info(f"Recorded feedback {feedback_result.data['feedback_id']} for response {response_id_for_feedback}")
+            else:
+                show_error(f"Failed to record feedback: {feedback_result.message}")
+                if feedback_result.errors:
+                    for error in feedback_result.errors:
+                        st.error(f"  • {error}")
+                st.session_state.error_count = st.session_state.get('error_count', 0) + 1
 
 # Tab 4: Optimization
 with tab4:
@@ -533,179 +509,232 @@ with tab4:
         if is_valid:
             show_success(message)
             
-            try:
-                # Show the prompt
-                prompt_data, error = safe_get_prompt(prompt_id_to_optimize)
+            # Show the prompt
+            prompt_data, error = safe_get_prompt(prompt_id_to_optimize)
+            
+            if prompt_data:
+                st.subheader("Current Prompt")
+                st.code(prompt_data['text'])
                 
-                if prompt_data:
-                    st.subheader("Current Prompt")
-                    st.code(prompt_data['text'])
+                # Get optimization readiness safely
+                readiness, readiness_error = safe_check_optimization_readiness(prompt_id_to_optimize)
+                
+                if readiness:
+                    st.subheader("Optimization Readiness")
                     
-                    # Get optimization readiness safely
-                    readiness, readiness_error = safe_check_optimization_readiness(prompt_id_to_optimize)
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Feedback Count", readiness.get("feedback_count", 0))
+                    with col2:
+                        st.metric("Threshold", readiness.get("threshold", 3))
+                    with col3:
+                        ready_status = "Yes" if readiness.get("is_ready", False) else "No"
+                        st.metric("Ready for Optimization", ready_status)
                     
-                    if readiness:
-                        st.subheader("Optimization Readiness")
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Feedback Count", readiness.get("feedback_count", 0))
-                        with col2:
-                            st.metric("Threshold", readiness.get("threshold", 3))
-                        with col3:
-                            ready_status = "Yes" if readiness.get("is_ready", False) else "No"
-                            st.metric("Ready for Optimization", ready_status)
-                        
-                        # Progress bar
-                        try:
-                            progress = min(readiness.get("feedback_count", 0) / max(readiness.get("threshold", 3), 1), 1.0)
-                            st.progress(progress)
-                        except Exception as progress_error:
-                            logger.warning(f"Error creating progress bar: {str(progress_error)}")
-                        
-                        # Show strategy assessment if available
-                        if "strategy_assessment" in readiness:
-                            with st.expander("Strategy Assessment Details"):
-                                st.json(readiness["strategy_assessment"])
-                        
-                        if readiness.get("is_ready", False):
-                            show_success("This prompt is ready for optimization!")
-                        else:
-                            needed = readiness.get('threshold', 3) - readiness.get('feedback_count', 0)
-                            st.warning(f"Need {needed} more feedback items")
-                        
-                        # Optimization controls
-                        st.subheader("Optimization Controls")
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            force_optimize = st.checkbox(
-                                "Force optimization (even if not ready)",
-                                help="Override readiness check and optimize anyway"
-                            )
-                        
-                        with col2:
-                            if st.button("Optimize Prompt", type="primary"):
-                                try:
-                                    with st.spinner("Generating optimization..."):
-                                        result = optimizer.optimize_prompt(
-                                            prompt_id=prompt_id_to_optimize,
-                                            force=force_optimize
-                                        )
-                                    
-                                    if result:
-                                        show_success("Optimization successful!")
-                                        
-                                        # Handle different result types
-                                        if isinstance(result, str):
-                                            if result.startswith("prompt_") or len(result) > 100:
-                                                # It's likely a new prompt ID
-                                                st.subheader("New Optimized Prompt Created")
-                                                st.info(f"New prompt ID: {result}")
-                                                
-                                                # Try to show the new prompt
-                                                try:
-                                                    new_prompt_data, new_error = safe_get_prompt(result)
-                                                    if new_prompt_data:
-                                                        st.subheader("Optimized Prompt")
-                                                        st.code(new_prompt_data['text'])
-                                                        
-                                                        # Show comparison
-                                                        st.subheader("Comparison")
-                                                        col1, col2 = st.columns(2)
-                                                        with col1:
-                                                            st.write("**Original:**")
-                                                            st.code(prompt_data['text'])
-                                                        with col2:
-                                                            st.write("**Optimized:**")
-                                                            st.code(new_prompt_data['text'])
-                                                        
-                                                        # Store the new prompt ID
-                                                        st.session_state.last_created_prompt_id = result
-                                                    
-                                                except Exception as display_error:
-                                                    logger.warning(f"Could not display new prompt: {str(display_error)}")
-                                                    st.info("Optimization created but could not display details.")
-                                            else:
-                                                # It's optimized text
-                                                st.subheader("Optimized Prompt Text")
-                                                st.code(result)
-                                        else:
-                                            st.info(f"Optimization result: {result}")
-                                    else:
-                                        st.info("No optimization was generated. This might be because:")
-                                        st.write("• Not enough feedback collected")
-                                        st.write("• Current prompt is already performing well")
-                                        st.write("• Strategy determined optimization not needed")
-                                        
-                                except OptimizationError as e:
-                                    show_error(f"Optimization failed: {str(e)}")
-                                    st.info("💡 Try collecting more feedback or using force optimization.")
-                                except LLMError as e:
-                                    show_error(f"LLM service error: {str(e)}")
-                                    st.info("💡 This might be due to API rate limits or connectivity issues.")
-                                except Exception as e:
-                                    logger.error(f"Unexpected optimization error: {str(e)}")
-                                    show_error(f"Unexpected error during optimization: {str(e)}")
-                                    st.session_state.error_count = st.session_state.get('error_count', 0) + 1
-                        
-                        # Version history
-                        st.subheader("Prompt Version History")
-                        try:
-                            with st.spinner("Loading version history..."):
-                                history = optimizer.optimizer.get_optimization_history(prompt_id_to_optimize)
+                    # Progress bar
+                    try:
+                        progress = min(readiness.get("feedback_count", 0) / max(readiness.get("threshold", 3), 1), 1.0)
+                        st.progress(progress)
+                    except Exception as progress_error:
+                        logger.warning(f"Error creating progress bar: {str(progress_error)}")
+                    
+                    # Show strategy assessment if available
+                    if "strategy_assessment" in readiness:
+                        with st.expander("Strategy Assessment Details"):
+                            st.json(readiness["strategy_assessment"])
+                    
+                    if readiness.get("is_ready", False):
+                        show_success("This prompt is ready for optimization!")
+                    else:
+                        needed = readiness.get('threshold', 3) - readiness.get('feedback_count', 0)
+                        st.warning(f"Need {needed} more feedback items")
+                    
+                    # Optimization controls
+                    st.subheader("Optimization Controls")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        force_optimize = st.checkbox(
+                            "Force optimization (even if not ready)",
+                            help="Override readiness check and optimize anyway"
+                        )
+                    
+                    with col2:
+                        if st.button("Optimize Prompt", type="primary"):
+                            with st.spinner("Generating optimization..."):
+                                opt_result = optimizer.optimize_prompt(
+                                    prompt_id=prompt_id_to_optimize,
+                                    force=force_optimize
+                                )
                             
-                            if history:
-                                for i, version in enumerate(history):
-                                    with st.expander(f"Version {version.get('version', '?')}", expanded=i==0):
-                                        st.write(f"**ID:** {version.get('prompt_id', 'Unknown')}")
-                                        st.write(f"**Created:** {version.get('created_at', 'Unknown')}")
-                                        st.write(f"**Text:** {version.get('text', 'Unknown')[:100]}...")
-                                        if version.get('description'):
-                                            st.write(f"**Description:** {version.get('description')}")
-                            else:
-                                st.info("No optimization history yet")
+                            if opt_result.success:
+                                show_success("Optimization successful!")
                                 
-                        except Exception as history_error:
-                            logger.warning(f"Could not load version history: {str(history_error)}")
-                            st.info("Version history not available")
-                            
-                    elif readiness_error:
-                        show_error(f"Cannot check optimization readiness: {readiness_error}")
-                        
-                elif error:
-                    show_error(error)
+                                if opt_result.optimization_applied:
+                                    st.subheader("New Optimized Prompt Created")
+                                    st.info(f"New prompt ID: {opt_result.new_prompt_id}")
+                                    
+                                    # Try to show the new prompt
+                                    new_prompt_data, new_error = safe_get_prompt(opt_result.new_prompt_id)
+                                    if new_prompt_data:
+                                        st.subheader("Optimized Prompt")
+                                        st.code(new_prompt_data['text'])
+                                        
+                                        # Show comparison
+                                        st.subheader("Comparison")
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            st.write("**Original:**")
+                                            st.code(prompt_data['text'])
+                                        with col2:
+                                            st.write("**Optimized:**")
+                                            st.code(new_prompt_data['text'])
+                                        
+                                        # Store the new prompt ID
+                                        st.session_state.last_created_prompt_id = opt_result.new_prompt_id
+                                    else:
+                                        st.info("Optimization created but could not display details.")
+                                else:
+                                    # Generated optimization but not applied
+                                    st.subheader("Generated Optimization")
+                                    if opt_result.data and 'optimized_text' in opt_result.data:
+                                        st.code(opt_result.data['optimized_text'])
+                                        
+                                        # Show comparison
+                                        st.subheader("Comparison")
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            st.write("**Original:**")
+                                            st.code(prompt_data['text'])
+                                        with col2:
+                                            st.write("**Optimized (not applied):**")
+                                            st.code(opt_result.data['optimized_text'])
+                                    else:
+                                        st.info("Optimization generated but text not available.")
+                            else:
+                                show_error(f"Optimization failed: {opt_result.message}")
+                                if opt_result.errors:
+                                    for error in opt_result.errors:
+                                        st.error(f"  • {error}")
+                                
+                                # Show readiness info if available
+                                if opt_result.readiness_info:
+                                    st.info("Readiness information:")
+                                    st.json(opt_result.readiness_info)
                     
-            except Exception as e:
-                logger.error(f"Error in optimization tab: {str(e)}")
-                show_error(f"Error: {str(e)}")
+                    # Version history
+                    st.subheader("Prompt Version History")
+                    try:
+                        with st.spinner("Loading version history..."):
+                            history = optimizer.optimizer.get_optimization_history(prompt_id_to_optimize)
+                        
+                        if history:
+                            for i, version in enumerate(history):
+                                with st.expander(f"Version {version.get('version', '?')}", expanded=i==0):
+                                    st.write(f"**ID:** {version.get('prompt_id', 'Unknown')}")
+                                    st.write(f"**Created:** {version.get('created_at', 'Unknown')}")
+                                    st.write(f"**Text:** {version.get('text', 'Unknown')[:100]}...")
+                                    if version.get('description'):
+                                        st.write(f"**Description:** {version.get('description')}")
+                        else:
+                            st.info("No optimization history yet")
+                            
+                    except Exception as history_error:
+                        logger.warning(f"Could not load version history: {str(history_error)}")
+                        st.info("Version history not available")
+                        
+                elif readiness_error:
+                    show_error(f"Cannot check optimization readiness: {readiness_error}")
+                    
+            elif error:
+                show_error(error)
         else:
             show_error(message, "warning")
 
-# Simplified versions of remaining tabs due to length constraints
-# Tab 5: Interactive Testing (key error handling patterns applied)
+# Simplified versions of remaining tabs
+# Tab 5: Interactive Testing
 with tab5:
     st.header("Interactive Testing Environment")
     st.info("Interactive testing with comprehensive error handling")
     
-    # Apply same error handling patterns as above tabs
-    # ... (implementation would follow same patterns)
+    # Basic interactive testing functionality
+    st.subheader("Quick Test")
+    
+    if st.session_state.get("last_created_prompt_id"):
+        prompt_id = st.session_state.last_created_prompt_id
+        
+        # Get prompt for testing
+        prompt_data, error = safe_get_prompt(prompt_id)
+        if prompt_data:
+            st.write(f"**Current Prompt:** {prompt_data['text']}")
+            
+            # Quick test input
+            test_input = st.text_input("Enter test input:")
+            
+            if test_input and st.button("Quick Test"):
+                formatted_text = prompt_data['text'].replace("{input_text}", test_input)
+                
+                # Record usage
+                usage_result = optimizer.record_prompt_use(prompt_id, formatted_text)
+                if usage_result.success:
+                    st.success("Test recorded successfully!")
+                    st.code(formatted_text)
+                else:
+                    show_error(f"Failed to record test: {usage_result.message}")
+        else:
+            st.info("Create a prompt first to use interactive testing")
+    else:
+        st.info("Create a prompt first to use interactive testing")
 
-# Tab 6: Analytics (key error handling patterns applied) 
+# Tab 6: Analytics
 with tab6:
     st.header("Analytics & Visualization")
     st.info("Analytics with proper error handling")
     
-    # Apply same error handling patterns
-    # ... (implementation would follow same patterns)
+    # Show feedback history
+    if st.session_state.feedback_history:
+        st.subheader("Feedback History")
+        
+        for i, feedback in enumerate(st.session_state.feedback_history[-5:]):  # Show last 5
+            with st.expander(f"Feedback {i+1} - {'👍 Positive' if feedback['is_positive'] else '👎 Negative'}"):
+                st.write(f"**Prompt ID:** {feedback['prompt_id']}")
+                st.write(f"**Score:** {feedback['score']}")
+                st.write(f"**Comments:** {feedback['comments']}")
+                st.write(f"**Time:** {feedback['timestamp']}")
+    else:
+        st.info("No feedback data available yet")
 
-# Tab 7: Auto Optimization (key error handling patterns applied)
+# Tab 7: Auto Optimization
 with tab7:
     st.header("Auto Optimization")
     st.info("Auto optimization with comprehensive error handling")
     
-    # Apply same error handling patterns
-    # ... (implementation would follow same patterns)
+    # Basic auto optimization controls
+    st.subheader("Auto Optimization Status")
+    
+    if st.button("Check All Prompts for Optimization"):
+        try:
+            all_prompts = optimizer.prompt_manager.list_prompts()
+            
+            if all_prompts:
+                st.write("**Optimization Status:**")
+                
+                for prompt in all_prompts[:5]:  # Check first 5 prompts
+                    readiness, error = safe_check_optimization_readiness(prompt.id)
+                    
+                    if readiness:
+                        status = "✅ Ready" if readiness.get("is_ready") else "⏳ Not Ready"
+                        feedback_count = readiness.get("feedback_count", 0)
+                        threshold = readiness.get("threshold", 3)
+                        
+                        st.write(f"**{prompt.id[:12]}...** - {status} ({feedback_count}/{threshold} feedback)")
+                    else:
+                        st.write(f"**{prompt.id[:12]}...** - ❌ Error: {error}")
+            else:
+                st.info("No prompts available for optimization")
+                
+        except Exception as e:
+            show_error(f"Failed to check optimization status: {str(e)}")
 
 # Footer and error tracking
 st.markdown("---")

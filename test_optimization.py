@@ -3,6 +3,8 @@
 Interactive Test Script for PromptCraft API with OpenAI integration.
 This script allows you to test prompt optimization with real OpenAI API calls
 and collect feedback interactively.
+
+Updated to use the new standardized API responses.
 """
 
 import os
@@ -18,6 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 # Import PromptCraft components
 from prompt_optimizer.api import PromptOptimizer
 from prompt_optimizer.services.llm_service import LLMService
+from prompt_optimizer.response_objects import PromptResult, OptimizationResult, ValidationResult, OperationResult
 from prompt_optimizer.config import OptimizerConfig
 
 # Load environment variables from .env file
@@ -59,6 +62,18 @@ def print_section(text):
     print(f"\n{Colors.BOLD}{Colors.BLUE}{text}{Colors.ENDC}")
     print(f"{Colors.BLUE}{'-' * len(text)}{Colors.ENDC}")
 
+def print_result(result, operation_name):
+    """Print a standardized result with proper formatting."""
+    if result.success:
+        print(f"{Colors.GREEN}✓ {operation_name} successful: {result.message}{Colors.ENDC}")
+        if hasattr(result, 'timestamp'):
+            print(f"  Time: {result.timestamp}")
+    else:
+        print(f"{Colors.RED}✗ {operation_name} failed: {result.message}{Colors.ENDC}")
+        if result.errors:
+            for error in result.errors:
+                print(f"  Error: {Colors.RED}{error}{Colors.ENDC}")
+
 def initialize_components():
     """Initialize the PromptOptimizer with OpenAI integration."""
     print_section("Initializing Components")
@@ -73,24 +88,33 @@ def initialize_components():
     print(f"{Colors.GREEN}✓ Found OpenAI API key{Colors.ENDC}")
     
     # Create LLM service
-    llm_service = LLMService(api_key=api_key, model="gpt-3.5-turbo")
-    print(f"{Colors.GREEN}✓ LLM service initialized{Colors.ENDC}")
+    try:
+        llm_service = LLMService(api_key=api_key, model="gpt-3.5-turbo")
+        print(f"{Colors.GREEN}✓ LLM service initialized{Colors.ENDC}")
+    except Exception as e:
+        print(f"{Colors.RED}✗ Failed to initialize LLM service: {str(e)}{Colors.ENDC}")
+        sys.exit(1)
     
     # Configure the optimizer with SimpleAI strategy
-    optimizer = PromptOptimizer(
-        storage_dir="./test_data",
-        optimization_threshold=3,  # Lower threshold for testing
-        strategy_name="simple_ai"
-    )
-    
-    # Inject the LLM service into the strategy
-    optimizer.optimizer.strategy.llm_service = llm_service
-    
-    # Set slightly higher minimum positive rate to trigger optimization sooner
-    optimizer.optimizer.strategy.min_positive_rate = 0.7
-    
-    print(f"{Colors.GREEN}✓ Optimizer initialized with OpenAI integration{Colors.ENDC}")
-    return optimizer, llm_service
+    try:
+        optimizer = PromptOptimizer(
+            storage_dir="./test_data",
+            optimization_threshold=3,  # Lower threshold for testing
+            strategy_name="simple_ai"
+        )
+        
+        # Inject the LLM service into the strategy
+        optimizer.optimizer.strategy.llm_service = llm_service
+        
+        # Set slightly higher minimum positive rate to trigger optimization sooner
+        optimizer.optimizer.strategy.min_positive_rate = 0.7
+        
+        print(f"{Colors.GREEN}✓ Optimizer initialized with OpenAI integration{Colors.ENDC}")
+        return optimizer, llm_service
+        
+    except Exception as e:
+        print(f"{Colors.RED}✗ Failed to initialize optimizer: {str(e)}{Colors.ENDC}")
+        sys.exit(1)
 
 def create_prompt(optimizer):
     """Create a new prompt for testing."""
@@ -108,11 +132,16 @@ def create_prompt(optimizer):
     print("Enter description (optional):")
     description = input().strip() or "Hotel review classifier"
     
-    # Create the prompt
-    prompt_id = optimizer.register_prompt(text=prompt_text, description=description)
+    # Create the prompt using new API
+    result = optimizer.register_prompt(text=prompt_text, description=description)
     
-    print(f"{Colors.GREEN}✓ Created prompt with ID: {prompt_id}{Colors.ENDC}")
-    return prompt_id, prompt_text
+    if result.success:
+        print_result(result, "Prompt creation")
+        print(f"  Prompt ID: {Colors.CYAN}{result.prompt_id}{Colors.ENDC}")
+        return result.prompt_id, result.prompt_text or prompt_text
+    else:
+        print_result(result, "Prompt creation")
+        sys.exit(1)
 
 def interactive_testing(optimizer, llm_service, prompt_id, prompt_text):
     """Run interactive testing and feedback collection."""
@@ -165,24 +194,39 @@ def interactive_testing(optimizer, llm_service, prompt_id, prompt_text):
         # Format the prompt
         formatted_prompt = prompt_text.replace("{input_text}", user_input)
         
-        # Record prompt usage
+        # Record prompt usage using new API
+        print(f"{Colors.YELLOW}Recording prompt usage...{Colors.ENDC}")
+        usage_result = optimizer.record_prompt_use(
+            prompt_id=prompt_id,
+            formatted_text=formatted_prompt
+        )
+        
+        if not usage_result.success:
+            print_result(usage_result, "Prompt usage recording")
+            continue
+        
+        instance_id = usage_result.data['instance_id']
+        print(f"{Colors.GREEN}✓ Recorded usage (ID: {instance_id}){Colors.ENDC}")
+        
+        # Generate response using OpenAI
         print(f"{Colors.YELLOW}Generating response...{Colors.ENDC}")
         try:
-            instance_id = optimizer.record_prompt_use(
-                prompt_id=prompt_id,
-                formatted_text=formatted_prompt
-            )
-            
-            # Generate response using OpenAI
             response = llm_service.generate(formatted_prompt)
             print(f"\n{Colors.GREEN}Generated response:{Colors.ENDC}")
             print(response)
             
-            # Record the response
-            response_id = optimizer.record_response(
+            # Record the response using new API
+            response_result = optimizer.record_response(
                 prompt_instance_id=instance_id,
                 content=response
             )
+            
+            if not response_result.success:
+                print_result(response_result, "Response recording")
+                continue
+            
+            response_id = response_result.data['response_id']
+            print(f"{Colors.GREEN}✓ Recorded response (ID: {response_id}){Colors.ENDC}")
             
             # Collect feedback
             print(f"\n{Colors.BOLD}Was this response correct? (y/n):{Colors.ENDC}")
@@ -197,23 +241,26 @@ def interactive_testing(optimizer, llm_service, prompt_id, prompt_text):
             print(f"{Colors.BOLD}Comments (optional):{Colors.ENDC}")
             comments = input().strip()
             
-            # Record feedback
-            feedback_id = optimizer.record_feedback(
+            # Record feedback using new API
+            feedback_result = optimizer.record_feedback(
                 response_id=response_id,
                 is_positive=is_positive,
                 score=score,
-                comments=comments
+                comments=comments if comments else None
             )
             
-            feedback_count += 1
-            print(f"{Colors.GREEN}✓ Feedback recorded ({feedback_count}){Colors.ENDC}")
-            
-            # Check optimization readiness every 3 feedback items
-            if feedback_count % 3 == 0:
-                try:
-                    check_and_optimize(optimizer, prompt_id, prompt_text)
-                except Exception as e:
-                    print(f"{Colors.RED}Error checking optimization: {str(e)}{Colors.ENDC}")
+            if feedback_result.success:
+                feedback_count += 1
+                print(f"{Colors.GREEN}✓ Feedback recorded ({feedback_count}) - ID: {feedback_result.data['feedback_id']}{Colors.ENDC}")
+                
+                # Check optimization readiness every 3 feedback items
+                if feedback_count % 3 == 0:
+                    try:
+                        check_and_optimize(optimizer, prompt_id, prompt_text)
+                    except Exception as e:
+                        print(f"{Colors.RED}Error checking optimization: {str(e)}{Colors.ENDC}")
+            else:
+                print_result(feedback_result, "Feedback recording")
                     
         except Exception as e:
             print(f"{Colors.RED}Error processing input: {str(e)}{Colors.ENDC}")
@@ -221,30 +268,35 @@ def interactive_testing(optimizer, llm_service, prompt_id, prompt_text):
 def safe_get_prompt(optimizer, prompt_id):
     """Safely get a prompt with error handling."""
     try:
-        prompt = optimizer.get_prompt(prompt_id)
-        return prompt
+        result = optimizer.get_prompt(prompt_id)
+        if result.success:
+            return result.data, None
+        else:
+            return None, result.message
     except Exception as e:
         print(f"{Colors.RED}Error retrieving prompt {prompt_id}: {str(e)}{Colors.ENDC}")
-        return None
+        return None, str(e)
 
 def check_and_optimize(optimizer, prompt_id, prompt_text, force=False) -> Tuple[Optional[str], str]:
     """Check if a prompt is ready for optimization and optimize if ready."""
     print_section("Checking Optimization Readiness")
     
-    # Get readiness data
-    try:
-        readiness = optimizer.get_optimization_stats(prompt_id)
-        print(f"Feedback count: {readiness.get('feedback_count', 0)}")
-        print(f"Threshold: {readiness.get('threshold', 3)}")
-        print(f"Is ready: {readiness.get('is_ready', False)}")
-        
-        if "strategy_assessment" in readiness:
-            print("\nStrategy Assessment:")
-            for key, value in readiness["strategy_assessment"].items():
-                print(f"- {key}: {value}")
-    except Exception as e:
-        print(f"{Colors.RED}Error checking optimization readiness: {str(e)}{Colors.ENDC}")
+    # Get readiness data using new API
+    stats_result = optimizer.get_optimization_stats(prompt_id)
+    
+    if not stats_result.success:
+        print_result(stats_result, "Optimization stats check")
         return None, prompt_text
+    
+    readiness = stats_result.data
+    print(f"Feedback count: {readiness.get('feedback_count', 0)}")
+    print(f"Threshold: {readiness.get('threshold', 3)}")
+    print(f"Is ready: {readiness.get('is_ready', False)}")
+    
+    if "strategy_assessment" in readiness:
+        print("\nStrategy Assessment:")
+        for key, value in readiness["strategy_assessment"].items():
+            print(f"- {key}: {value}")
     
     # Try to optimize if ready or forced
     if readiness.get("is_ready", False) or force:
@@ -253,51 +305,46 @@ def check_and_optimize(optimizer, prompt_id, prompt_text, force=False) -> Tuple[
         print(f"Original prompt: {Colors.CYAN}{prompt_text}{Colors.ENDC}")
         print(f"{Colors.YELLOW}Generating optimization...{Colors.ENDC}")
         
-        try:
-            # Try to optimize the prompt
-            optimization_result = optimizer.optimize_prompt(prompt_id, force=force)
+        # Try to optimize the prompt using new API
+        opt_result = optimizer.optimize_prompt(prompt_id, force=force)
+        
+        if opt_result.success:
+            print_result(opt_result, "Optimization")
             
-            if optimization_result:
-                # Check if the result is a string (direct prompt text)
-                if isinstance(optimization_result, str):
-                    print(f"{Colors.GREEN}Optimization successful!{Colors.ENDC}")
-                    print(f"Optimized prompt: {Colors.CYAN}{optimization_result}{Colors.ENDC}")
-                    # Return the same prompt ID with the new text
-                    return prompt_id, optimization_result
+            if opt_result.optimization_applied:
+                # Optimization was applied, get the new prompt
+                new_prompt_data, error = safe_get_prompt(optimizer, opt_result.new_prompt_id)
                 
-                # If not a string, assume it's a prompt ID
-                new_prompt = safe_get_prompt(optimizer, optimization_result)
-                
-                if new_prompt and isinstance(new_prompt, dict) and 'text' in new_prompt:
-                    print(f"{Colors.GREEN}Optimization successful!{Colors.ENDC}")
-                    print(f"Optimized prompt: {Colors.CYAN}{new_prompt['text']}{Colors.ENDC}")
-                    return optimization_result, new_prompt['text']
-                
-                # Try to get the parent prompt as a fallback
-                print(f"{Colors.YELLOW}Could not retrieve the new prompt. Checking history...{Colors.ENDC}")
-                try:
-                    # Try to get the prompt history
-                    history = optimizer.optimizer.get_optimization_history(prompt_id)
-                    if history and len(history) > 0:
-                        latest = history[0]
-                        print(f"{Colors.GREEN}Found latest version in history!{Colors.ENDC}")
-                        print(f"Optimized prompt: {Colors.CYAN}{latest.get('text', prompt_text)}{Colors.ENDC}")
-                        return latest.get('prompt_id', prompt_id), latest.get('text', prompt_text)
-                except:
-                    pass
-                    
-                print(f"{Colors.YELLOW}Using original prompt as fallback.{Colors.ENDC}")
-                return prompt_id, prompt_text
+                if new_prompt_data:
+                    print(f"Optimized prompt: {Colors.CYAN}{new_prompt_data['text']}{Colors.ENDC}")
+                    return opt_result.new_prompt_id, new_prompt_data['text']
+                else:
+                    print(f"{Colors.YELLOW}Could not retrieve optimized prompt: {error}{Colors.ENDC}")
+                    return prompt_id, prompt_text
             else:
-                print(f"{Colors.YELLOW}Optimization not performed.{Colors.ENDC}")
-                print("Possible reasons:")
-                print("- Feedback quality doesn't warrant optimization")
-                print("- Strategy assessment determined optimization not needed")
-        except Exception as e:
-            print(f"{Colors.RED}Error during optimization: {str(e)}{Colors.ENDC}")
+                # Optimization was generated but not applied
+                if opt_result.data and 'optimized_text' in opt_result.data:
+                    optimized_text = opt_result.data['optimized_text']
+                    print(f"Generated optimization: {Colors.CYAN}{optimized_text}{Colors.ENDC}")
+                    print(f"{Colors.YELLOW}Note: Optimization not auto-applied{Colors.ENDC}")
+                    return prompt_id, optimized_text  # Return the optimized text
+                else:
+                    print(f"{Colors.YELLOW}Optimization generated but text not available{Colors.ENDC}")
+                    return prompt_id, prompt_text
+        else:
+            print_result(opt_result, "Optimization")
+            
+            # Show readiness info if available
+            if opt_result.readiness_info:
+                print(f"{Colors.YELLOW}Readiness details:{Colors.ENDC}")
+                readiness_info = opt_result.readiness_info
+                needed = readiness_info.get('threshold', 3) - readiness_info.get('feedback_count', 0)
+                if needed > 0:
+                    print(f"  Need {needed} more feedback items")
     else:
         print(f"{Colors.YELLOW}Not ready for optimization yet.{Colors.ENDC}")
-        print(f"Need {readiness.get('threshold', 3) - readiness.get('feedback_count', 0)} more feedback items.")
+        needed = readiness.get('threshold', 3) - readiness.get('feedback_count', 0)
+        print(f"Need {needed} more feedback items.")
     
     return None, prompt_text
 
@@ -330,41 +377,59 @@ def automatic_demo(optimizer, llm_service, prompt_id, prompt_text):
         print(f"{Colors.CYAN}Review: {data['text']}{Colors.ENDC}")
         print(f"Expected: {data['expected']}")
         
+        # Format the prompt
+        formatted_prompt = prompt_text.replace("{input_text}", data["text"])
+        
+        # Record prompt usage using new API
+        usage_result = optimizer.record_prompt_use(
+            prompt_id=prompt_id,
+            formatted_text=formatted_prompt
+        )
+        
+        if not usage_result.success:
+            print_result(usage_result, f"Usage recording for sample {i+1}")
+            continue
+        
+        instance_id = usage_result.data['instance_id']
+        
+        # Generate response
+        print(f"{Colors.YELLOW}Generating classification...{Colors.ENDC}")
         try:
-            # Format the prompt
-            formatted_prompt = prompt_text.replace("{input_text}", data["text"])
-            
-            # Record prompt usage
-            instance_id = optimizer.record_prompt_use(
-                prompt_id=prompt_id,
-                formatted_text=formatted_prompt
-            )
-            
-            # Generate response
-            print(f"{Colors.YELLOW}Generating classification...{Colors.ENDC}")
             response = llm_service.generate(formatted_prompt)
-            response_text = response.lower().strip().replace('"', '') # Clean up the response
+            response_text = response.lower().strip().replace('"', '')  # Clean up the response
             print(f"{Colors.GREEN}Classification: {response_text}{Colors.ENDC}")
             
-            # Record the response
-            response_id = optimizer.record_response(
+            # Record the response using new API
+            response_result = optimizer.record_response(
                 prompt_instance_id=instance_id,
                 content=response
             )
             
+            if not response_result.success:
+                print_result(response_result, f"Response recording for sample {i+1}")
+                continue
+            
+            response_id = response_result.data['response_id']
+            
             # Determine if response is correct
             is_correct = response_text == data["expected"]
             
-            # Record feedback
-            feedback_id = optimizer.record_feedback(
+            # Record feedback using new API
+            feedback_result = optimizer.record_feedback(
                 response_id=response_id,
                 is_positive=is_correct,
                 score=1.0 if is_correct else 0.0,
                 comments=f"{'Correct' if is_correct else 'Incorrect'} classification"
             )
             
-            print(f"{Colors.GREEN if is_correct else Colors.RED}✓ Recorded feedback: {'Correct' if is_correct else 'Incorrect'}{Colors.ENDC}")
+            if feedback_result.success:
+                status_color = Colors.GREEN if is_correct else Colors.RED
+                print(f"{status_color}✓ Recorded feedback: {'Correct' if is_correct else 'Incorrect'}{Colors.ENDC}")
+            else:
+                print_result(feedback_result, f"Feedback recording for sample {i+1}")
+            
             time.sleep(1)  # Pause between requests
+            
         except Exception as e:
             print(f"{Colors.RED}Error processing sample {i+1}: {str(e)}{Colors.ENDC}")
     
@@ -375,7 +440,7 @@ def automatic_demo(optimizer, llm_service, prompt_id, prompt_text):
         # If optimization was successful
         if result and isinstance(result, tuple) and len(result) == 2:
             new_prompt_id, optimized_text = result
-            if new_prompt_id and optimized_text:
+            if new_prompt_id and optimized_text and optimized_text != prompt_text:
                 # Test the optimized prompt
                 print(f"\n{Colors.BOLD}Testing optimized prompt with new reviews:{Colors.ENDC}")
                 
@@ -396,6 +461,7 @@ def automatic_demo(optimizer, llm_service, prompt_id, prompt_text):
                         print(f"{Colors.GREEN}Classification: {optimized_result.lower().strip()}{Colors.ENDC}")
                     except Exception as e:
                         print(f"{Colors.RED}Error testing optimized prompt: {str(e)}{Colors.ENDC}")
+                        
     except Exception as e:
         print(f"{Colors.RED}Error during optimization phase: {str(e)}{Colors.ENDC}")
     
