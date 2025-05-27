@@ -207,7 +207,7 @@ class PromptOptimizer:
             validation = self.validate_prompt_id(prompt_id)
             if not validation.is_valid:
                 return OperationResult(
-                    success=False,
+                    is_successful=False,
                     message=f"Prompt {prompt_id} not found",
                     errors=["Invalid prompt ID"]
                 )
@@ -220,7 +220,7 @@ class PromptOptimizer:
             
             logger.info(f"Recorded prompt use for {prompt_id}")
             return OperationResult(
-                success=True,
+                is_successful=True,
                 data={"instance_id": instance.id, "prompt_id": prompt_id},
                 message="Prompt usage recorded successfully"
             )
@@ -228,14 +228,14 @@ class PromptOptimizer:
         except ValidationError as e:
             logger.warning(f"Invalid data for prompt use: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Invalid request data",
                 errors=[str(e)]
             )
         except Exception as e:
             logger.error(f"Failed to record prompt use: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Failed to record prompt use",
                 errors=[f"Storage error: {str(e)}"]
             )
@@ -264,7 +264,7 @@ class PromptOptimizer:
             
             logger.info(f"Recorded response {response.id}")
             return OperationResult(
-                success=True,
+                is_successful=True,
                 data={"response_id": response.id, "prompt_instance_id": prompt_instance_id},
                 message="Response recorded successfully"
             )
@@ -272,7 +272,7 @@ class PromptOptimizer:
         except ValidationError as e:
             logger.warning(f"Invalid response data: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Invalid request data",
                 errors=[str(e)]
             )
@@ -280,14 +280,14 @@ class PromptOptimizer:
             # Convert ValueError from response_tracker to our standard response
             logger.warning(f"Response recording failed: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Prompt instance not found",
                 errors=[str(e)]
             )
         except Exception as e:
             logger.error(f"Failed to record response: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Failed to record response",
                 errors=[f"Storage error: {str(e)}"]
             )
@@ -322,7 +322,7 @@ class PromptOptimizer:
             
             logger.info(f"Recorded feedback {feedback.id}")
             return OperationResult(
-                success=True,
+                is_successful=True,
                 data={"feedback_id": feedback.id, "response_id": response_id},
                 message="Feedback recorded successfully"
             )
@@ -330,7 +330,7 @@ class PromptOptimizer:
         except ValidationError as e:
             logger.warning(f"Invalid feedback data: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Invalid request data",
                 errors=[str(e)]
             )
@@ -338,14 +338,14 @@ class PromptOptimizer:
             # Convert ValueError from feedback_collector to our standard response
             logger.warning(f"Feedback recording failed: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Response not found",
                 errors=[str(e)]
             )
         except Exception as e:
             logger.error(f"Failed to record feedback: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Failed to record feedback",
                 errors=[f"Storage error: {str(e)}"]
             )
@@ -392,7 +392,7 @@ class PromptOptimizer:
                     # If not auto_apply, result should be the optimized text
                     logger.info(f"Generated optimization for {prompt_id}")
                     return OptimizationResult(
-                        success=True,
+                        is_successful=True,
                         data={"optimized_text": str(result)},
                         message="Optimization generated successfully (not applied)",
                         original_prompt_id=prompt_id,
@@ -453,7 +453,7 @@ class PromptOptimizer:
             readiness_info = self.optimizer.check_optimization_readiness(prompt_id)
             
             return OptimizationResult(
-                success=True,
+                is_successful=True,
                 data=readiness_info,
                 message="Optimization statistics retrieved successfully",
                 original_prompt_id=prompt_id,
@@ -493,7 +493,7 @@ class PromptOptimizer:
             }
             
             return OperationResult(
-                success=True,
+                is_successful=True,
                 data=config_data,
                 message="Configuration retrieved successfully"
             )
@@ -501,7 +501,7 @@ class PromptOptimizer:
         except Exception as e:
             logger.warning(f"Failed to get config info: {str(e)}")
             return OperationResult(
-                success=False,
+                is_successful=False,
                 message="Failed to get configuration",
                 errors=[str(e)]
             )
