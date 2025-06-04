@@ -15,7 +15,7 @@ A Python API for automatically optimizing AI prompts based on user feedback.
 ```bash
 # Clone the repository
 git clone https://github.com/talgaon4/PromptCraft-API.git
-cd prompt-optimizer
+cd PromptCraft-API
 
 # Create a virtual environment
 python -m venv venv
