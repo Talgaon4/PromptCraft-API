@@ -21,9 +21,7 @@ class FeedbackCollector:
     def record_feedback(
         self,
         response_id: str,
-        is_positive: bool,
-        score: Optional[float] = None,
-        comments: Optional[str] = None
+        score: float,
     ) -> Feedback:
         """Record feedback for a response."""
         # Verify response exists
@@ -34,9 +32,7 @@ class FeedbackCollector:
         # Create and save feedback
         feedback = Feedback(
             response_id=response_id,
-            is_positive=is_positive,
-            score=score,
-            comments=comments
+            score=score
         )
         return self.feedback_storage.save(feedback)
 
@@ -64,9 +60,7 @@ class FeedbackCollector:
                         "response_id": response.id,
                         "prompt_instance_id": instance.id,
                         "prompt_id": prompt_id,
-                        "is_positive": feedback.is_positive,
                         "score": feedback.score,
-                        "comments": feedback.comments,
                         "created_at": feedback.created_at
                     }
                     
@@ -86,25 +80,18 @@ class FeedbackCollector:
             return {
                 "prompt_id": prompt_id,
                 "total_feedback": 0,
-                "positive_ratio": 0,
-                "average_score": 0,
+                "average_score": 0.0,
                 "has_sufficient_data": False,
                 "sufficient_threshold": 5
             }
-            
+
         total = len(feedback_items)
-        positive_count = sum(1 for item in feedback_items if item["is_positive"])
-        scores = [item["score"] for item in feedback_items if item["score"] is not None]
-        
-        # Calculate actual statistics
-        positive_ratio = positive_count / total if total > 0 else 0
-        average_score = sum(scores) / len(scores) if scores else None
-        
+        avg_score = sum(item["score"] for item in feedback_items) / total
+
         return {
             "prompt_id": prompt_id,
             "total_feedback": total,
-            "positive_ratio": positive_ratio,
-            "average_score": average_score,
+            "average_score": avg_score,
             "has_sufficient_data": total >= 5,  # Threshold for sufficient data
             "sufficient_threshold": 5
         }

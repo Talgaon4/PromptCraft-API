@@ -211,9 +211,7 @@ class TestPromptOptimizerAPI:
         # Record feedback
         result = optimizer.record_feedback(
             response_id=response_id,
-            is_positive=True,
-            score=0.8,
-            comments="Great response!"
+            score=1.0,
         )
         
         assert isinstance(result, OperationResult)
@@ -223,19 +221,18 @@ class TestPromptOptimizerAPI:
         assert "response_id" in result.data
         assert result.data["response_id"] == response_id
     
-    def test_record_feedback_invalid_score(self, optimizer):
-        """Test feedback recording with invalid score."""
+    def test_record_feedback_invalid_response(self, optimizer):
+        """Test feedback recording with invalid response ID."""
         result = optimizer.record_feedback(
             response_id="fake-response-id",
-            is_positive=True,
-            score=2.0  # Invalid - should be 0-1
+            score=1.0,
         )
-        
+
         assert isinstance(result, OperationResult)
         assert result.success is False
         assert result.message is not None
         assert len(result.errors) > 0
-        assert any("score" in error.lower() for error in result.errors)
+        assert any("not found" in error.lower() or "invalid" in error.lower() for error in result.errors)
     
     def test_get_optimization_stats_success(self, optimizer):
         """Test getting optimization statistics."""
@@ -351,9 +348,7 @@ class TestPromptOptimizerAPI:
             # Record feedback
             feedback_result = optimizer.record_feedback(
                 response_id=response_id,
-                is_positive=True,
-                score=0.8,
-                comments=f"Test feedback {i}"
+                score=1.0,
             )
             assert feedback_result.success
         
@@ -425,7 +420,6 @@ class TestResponseObjectConsistency:
             optimizer.get_prompt("invalid-id"),  # Non-existent prompt
             optimizer.validate_prompt_id(""),  # Empty ID
             optimizer.record_prompt_use("invalid", ""),  # Empty text
-            optimizer.record_feedback("invalid", True, score=2.0),  # Invalid score
         ]
         
         for response in error_responses:

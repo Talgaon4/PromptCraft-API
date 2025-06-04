@@ -45,7 +45,5 @@ class Feedback(BaseModel):
     """Model representing feedback for a response."""
     id: str = Field(default_factory=generate_id)
     response_id: str
-    is_positive: bool
-    score: Optional[float] = None
-    comments: Optional[str] = None
+    score: float = Field(ge=0, le=1)
     created_at: datetime = Field(default_factory=datetime.now)

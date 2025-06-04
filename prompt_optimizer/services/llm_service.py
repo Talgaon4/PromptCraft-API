@@ -141,9 +141,8 @@ class LLMService:
             
             # Add at most 3 examples to save tokens
             for i, example in enumerate(feedback_examples[:3]):
-                rating = "👍 Positive" if example.get("is_positive", False) else "👎 Negative"
-                comments = example.get('comments', 'No comment')
-                optimization_prompt += f"\nExample {i+1} ({rating}): {comments}"
+                rating = "👍 Positive" if example.get("score", 0) >= 0.5 else "👎 Negative"
+                optimization_prompt += f"\nExample {i+1} ({rating})"
             
             optimization_prompt += """
             

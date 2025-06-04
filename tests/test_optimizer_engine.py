@@ -32,7 +32,6 @@ def optimizer_engine():
         "prompt_id": "test-prompt-id",
         "total_feedback": 15,
         "positive_ratio": 0.8,
-        "average_score": 0.75,
         "has_sufficient_data": True
     }
     

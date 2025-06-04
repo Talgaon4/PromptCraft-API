@@ -53,9 +53,7 @@ response_id = optimizer.record_response(
 # Record feedback
 optimizer.record_feedback(
     response_id=response_id,
-    is_positive=True,
-    score=0.8,
-    comments="Good summary!"
+    score=1.0,
 )
 
 # Generate an optimization

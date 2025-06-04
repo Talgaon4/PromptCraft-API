@@ -64,7 +64,7 @@ class RewardModel:
             feedback_data: List of dictionaries with keys:
                           'prompt': The prompt text
                           'response': The response text
-                          'is_positive': Boolean indicating positive feedback
+                          'score': Feedback score between 0 and 1
                           
         Returns:
             Training metrics including validation performance
@@ -79,7 +79,7 @@ class RewardModel:
         for item in feedback_data:
             prompt = item.get('prompt', '')
             response = item.get('response', '')
-            is_positive = item.get('is_positive', False)
+            is_positive = item.get('score', 0) >= 0.5
             
             features = self._create_features(prompt, response)[0]  # Remove batch dimension
             X.append(features)

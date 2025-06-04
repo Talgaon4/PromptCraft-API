@@ -93,7 +93,7 @@ class SimpleAIStrategy(OptimizationStrategy):
                 }
             
             # Calculate positive rate
-            positive_count = sum(1 for item in feedback_data if item.get("is_positive", False))
+            positive_count = sum(1 for item in feedback_data if item.get("score", 0) >= 0.5)
             positive_rate = positive_count / total_feedback if total_feedback > 0 else 0
             
             # If positive rate is already very high, maybe no need to optimize
@@ -234,8 +234,8 @@ class SimpleAIStrategy(OptimizationStrategy):
                 sorted_data = feedback_data
             
             # Get a mix of positive and negative examples
-            positive = [item for item in sorted_data if item.get("is_positive", False)][:limit//2]
-            negative = [item for item in sorted_data if not item.get("is_positive", False)][:limit//2]
+            positive = [item for item in sorted_data if item.get("score", 0) >= 0.5][:limit//2]
+            negative = [item for item in sorted_data if item.get("score", 0) < 0.5][:limit//2]
             
             # Combine and format
             examples = []
@@ -244,13 +244,11 @@ class SimpleAIStrategy(OptimizationStrategy):
                     example = {
                         "query": self._extract_query(item),
                         "response": item.get("response", {}).get("content", item.get("response_content", "")),
-                        "is_positive": item.get("is_positive", False),
-                        "comments": item.get("comments", ""),
                         "score": item.get("score")
                     }
                     
                     # Only include if we have meaningful data
-                    if example["query"] or example["response"] or example["comments"]:
+                    if example["query"] or example["response"]:
                         examples.append(example)
                         
                 except Exception as e:
@@ -322,14 +320,12 @@ EXAMPLES:
 """
             
             for i, example in enumerate(examples, 1):
-                feedback_type = "👍 POSITIVE" if example["is_positive"] else "👎 NEGATIVE"
+                feedback_type = "👍 POSITIVE" if example.get("score", 0) >= 0.5 else "👎 NEGATIVE"
                 ai_prompt += f"""
 Example {i} ({feedback_type}):
 Query: {example['query'][:200]}{'...' if len(example['query']) > 200 else ''}
 Response: {example['response'][:200]}{'...' if len(example['response']) > 200 else ''}
 """
-                if example.get("comments"):
-                    ai_prompt += f"User Comments: {example['comments'][:100]}{'...' if len(example['comments']) > 100 else ''}\n"
                 if example.get("score") is not None:
                     ai_prompt += f"Score: {example['score']}/1.0\n"
             
