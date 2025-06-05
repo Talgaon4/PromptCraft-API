@@ -30,27 +30,24 @@ def test_record_feedback(feedback_collector):
     """Test recording feedback for a response."""
     feedback = feedback_collector.record_feedback(
         response_id="test-response-id",
-        is_positive=True,
-        score=0.9,
-        comments="Great response!"
+        score=0.9
     )
     
     assert feedback.id is not None
     assert feedback.response_id == "test-response-id"
     assert feedback.is_positive is True
     assert feedback.score == 0.9
-    assert feedback.comments == "Great response!"
 
 
 def test_get_feedback_for_response(feedback_collector):
     """Test retrieving feedback for a response."""
     feedback_collector.record_feedback(
         response_id="test-response-id",
-        is_positive=True
+        score=0.8
     )
     feedback_collector.record_feedback(
         response_id="test-response-id",
-        is_positive=False
+        score=0.3
     )
     
     feedback_items = feedback_collector.get_feedback_for_response("test-response-id")
@@ -64,5 +61,5 @@ def test_record_feedback_invalid_response(feedback_collector):
     with pytest.raises(ValueError):
         feedback_collector.record_feedback(
             response_id="non-existent-id",
-            is_positive=True
+            score=0.5
         )

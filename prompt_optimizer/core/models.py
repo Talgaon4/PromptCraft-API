@@ -43,9 +43,13 @@ class Response(BaseModel):
 
 class Feedback(BaseModel):
     """Model representing feedback for a response."""
+
     id: str = Field(default_factory=generate_id)
     response_id: str
-    is_positive: bool
-    score: Optional[float] = None
-    comments: Optional[str] = None
+    score: float
     created_at: datetime = Field(default_factory=datetime.now)
+
+    @property
+    def is_positive(self) -> bool:
+        """Return ``True`` if the score indicates positive feedback."""
+        return self.score >= 0.5

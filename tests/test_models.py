@@ -51,11 +51,8 @@ def test_feedback_creation():
     )
     feedback = Feedback(
         response_id=response.id,
-        is_positive=True,
-        score=0.9,
-        comments="Great summary!"
+        score=0.9
     )
     assert feedback.response_id == response.id
     assert feedback.is_positive is True
     assert feedback.score == 0.9
-    assert feedback.comments == "Great summary!"

@@ -292,15 +292,12 @@ class PromptOptimizer:
                 errors=[f"Storage error: {str(e)}"]
             )
 
-    def record_feedback(self, response_id: str, is_positive: bool,
-                       score: Optional[float] = None, comments: Optional[str] = None) -> OperationResult:
+    def record_feedback(self, response_id: str, score: float) -> OperationResult:
         """Record feedback for a response.
         
         Args:
             response_id: ID of the response
-            is_positive: Whether feedback is positive
-            score: Optional score (0-1)
-            comments: Optional comments
+            score: Numeric score (0-1)
             
         Returns:
             OperationResult with the feedback ID in data field
@@ -308,16 +305,12 @@ class PromptOptimizer:
         try:
             validate_not_empty(response_id, "Response ID")
             
-            # Validate score if provided
-            if score is not None:
-                if not isinstance(score, (int, float)) or not 0 <= score <= 1:
-                    raise ValidationError("Score must be a number between 0 and 1")
+            if not isinstance(score, (int, float)) or not 0 <= score <= 1:
+                raise ValidationError("Score must be a number between 0 and 1")
             
             feedback = self.feedback_collector.record_feedback(
                 response_id=response_id,
-                is_positive=is_positive,
-                score=score,
-                comments=comments
+                score=score
             )
             
             logger.info(f"Recorded feedback {feedback.id}")

@@ -364,24 +364,18 @@ def interactive_testing(optimizer, llm_service, prompt_id, prompt_text, prompt_t
             print(f"{Colors.GREEN}✓ Recorded response (ID: {response_id}){Colors.ENDC}")
             
             # Collect feedback - customize based on prompt type
-            print(f"\n{Colors.BOLD}Was this a good response? (y/n):{Colors.ENDC}")
-            is_positive = input().lower().startswith('y')
+            print(f"\n{Colors.BOLD}Rate the response from 0-10:{Colors.ENDC}")
             
             print(f"{Colors.BOLD}Score (0-10):{Colors.ENDC}")
             try:
                 score = float(input() or "5") / 10.0  # Convert to 0-1 scale, default to 5
             except ValueError:
                 score = 0.5  # Default
-            
-            print(f"{Colors.BOLD}Comments (optional):{Colors.ENDC}")
-            comments = input().strip()
-            
+
             # Record feedback using new API
             feedback_result = optimizer.record_feedback(
                 response_id=response_id,
-                is_positive=is_positive,
                 score=score,
-                comments=comments if comments else None
             )
             
             if feedback_result.success:
@@ -568,9 +562,7 @@ def automatic_demo(optimizer, llm_service, prompt_id, prompt_text, prompt_type, 
             # Record feedback using new API
             feedback_result = optimizer.record_feedback(
                 response_id=response_id,
-                is_positive=is_correct,
                 score=0.9 if is_correct else 0.2,
-                comments=f"{'Good' if is_correct else 'Needs improvement'} response"
             )
             
             if feedback_result.success:

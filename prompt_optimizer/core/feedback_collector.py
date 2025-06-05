@@ -21,9 +21,7 @@ class FeedbackCollector:
     def record_feedback(
         self,
         response_id: str,
-        is_positive: bool,
-        score: Optional[float] = None,
-        comments: Optional[str] = None
+        score: float
     ) -> Feedback:
         """Record feedback for a response."""
         # Verify response exists
@@ -34,9 +32,7 @@ class FeedbackCollector:
         # Create and save feedback
         feedback = Feedback(
             response_id=response_id,
-            is_positive=is_positive,
-            score=score,
-            comments=comments
+            score=score
         )
         return self.feedback_storage.save(feedback)
 
@@ -66,7 +62,6 @@ class FeedbackCollector:
                         "prompt_id": prompt_id,
                         "is_positive": feedback.is_positive,
                         "score": feedback.score,
-                        "comments": feedback.comments,
                         "created_at": feedback.created_at
                     }
                     

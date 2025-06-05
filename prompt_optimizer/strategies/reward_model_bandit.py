@@ -98,7 +98,9 @@ class RewardModelBanditStrategy(OptimizationStrategy):
             }
         
         # Check if there's enough variety in the feedback
-        positive = sum(1 for item in feedback_data if item.get("is_positive", False))
+        positive = sum(
+            1 for item in feedback_data if item.get("score", 0) >= 0.5
+        )
         negative = total_feedback - positive
         
         # Need some of both for a good model
@@ -253,7 +255,8 @@ class RewardModelBanditStrategy(OptimizationStrategy):
             else:
                 response_text = ""
             
-            is_positive = item.get("is_positive", False)
+            score = item.get("score")
+            is_positive = score is not None and score >= 0.5
             
             if prompt_text and response_text:  # Only include if we have both
                 processed_data.append({
@@ -325,7 +328,7 @@ class RewardModelBanditStrategy(OptimizationStrategy):
                                   feedback_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Calculate statistics for the production prompt."""
         total = len(feedback_data)
-        successes = sum(1 for item in feedback_data if item.get("is_positive", False))
+        successes = sum(1 for item in feedback_data if item.get("score", 0) >= 0.5)
         
         return {
             "total": total,

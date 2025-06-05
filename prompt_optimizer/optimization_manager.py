@@ -83,7 +83,8 @@ class OptimizationManager:
             
             prompt_text = prompt_instance.get("formatted_text", "")
             response_text = response.get("content", "")
-            is_positive = item.get("is_positive", False)
+            score = item.get("score")
+            is_positive = score is not None and score >= 0.5
             
             processed_data.append({
                 "prompt": prompt_text,
@@ -353,7 +354,11 @@ class OptimizationManager:
         ]
         
         total = len(prompt_feedback)
-        successes = sum(1 for item in prompt_feedback if item.get("is_positive", False))
+        successes = sum(
+            1
+            for item in prompt_feedback
+            if (item.get("score") is not None and item["score"] >= 0.5)
+        )
         
         return {
             "prompt_id": prompt_id,

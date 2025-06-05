@@ -211,9 +211,7 @@ class TestPromptOptimizerAPI:
         # Record feedback
         result = optimizer.record_feedback(
             response_id=response_id,
-            is_positive=True,
             score=0.8,
-            comments="Great response!"
         )
         
         assert isinstance(result, OperationResult)
@@ -227,7 +225,6 @@ class TestPromptOptimizerAPI:
         """Test feedback recording with invalid score."""
         result = optimizer.record_feedback(
             response_id="fake-response-id",
-            is_positive=True,
             score=2.0  # Invalid - should be 0-1
         )
         
@@ -351,9 +348,7 @@ class TestPromptOptimizerAPI:
             # Record feedback
             feedback_result = optimizer.record_feedback(
                 response_id=response_id,
-                is_positive=True,
                 score=0.8,
-                comments=f"Test feedback {i}"
             )
             assert feedback_result.success
         
