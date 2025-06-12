@@ -83,13 +83,14 @@ class OptimizationManager:
             
             prompt_text = prompt_instance.get("formatted_text", "")
             response_text = response.get("content", "")
-            is_positive = item.get("is_positive", False)
-            
-            processed_data.append({
-                "prompt": prompt_text,
-                "response": response_text,
-                "is_positive": is_positive
-            })
+            score = item.get("score")
+
+            if score is not None:
+                processed_data.append({
+                    "prompt": prompt_text,
+                    "response": response_text,
+                    "score": score
+                })
         
         self.logger.info(f"Prepared {len(processed_data)} feedback items for training")
         return processed_data
@@ -353,7 +354,7 @@ class OptimizationManager:
         ]
         
         total = len(prompt_feedback)
-        successes = sum(1 for item in prompt_feedback if item.get("is_positive", False))
+        successes = sum(1 for item in prompt_feedback if item.get("score", 0) >= 0.5)
         
         return {
             "prompt_id": prompt_id,

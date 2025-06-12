@@ -211,9 +211,7 @@ class TestPromptOptimizerAPI:
         # Record feedback
         result = optimizer.record_feedback(
             response_id=response_id,
-            is_positive=True,
             score=0.8,
-            comments="Great response!"
         )
         
         assert isinstance(result, OperationResult)
@@ -227,11 +225,8 @@ class TestPromptOptimizerAPI:
         """Test feedback recording with invalid score."""
         result = optimizer.record_feedback(
             response_id="fake-response-id",
-            is_positive=True,
             score=2.0  # Invalid - should be 0-1
         )
-        
-        assert isinstance(result, OperationResult)
         assert result.success is False
         assert result.message is not None
         assert len(result.errors) > 0
@@ -348,12 +343,9 @@ class TestPromptOptimizerAPI:
             assert response_result.success
             response_id = response_result.data["response_id"]
             
-            # Record feedback
             feedback_result = optimizer.record_feedback(
                 response_id=response_id,
-                is_positive=True,
-                score=0.8,
-                comments=f"Test feedback {i}"
+                score=0.8
             )
             assert feedback_result.success
         
@@ -425,7 +417,7 @@ class TestResponseObjectConsistency:
             optimizer.get_prompt("invalid-id"),  # Non-existent prompt
             optimizer.validate_prompt_id(""),  # Empty ID
             optimizer.record_prompt_use("invalid", ""),  # Empty text
-            optimizer.record_feedback("invalid", True, score=2.0),  # Invalid score
+            optimizer.record_feedback("invalid", score=2.0),
         ]
         
         for response in error_responses:

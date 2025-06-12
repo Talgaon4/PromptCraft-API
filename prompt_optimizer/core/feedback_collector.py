@@ -21,11 +21,9 @@ class FeedbackCollector:
     def record_feedback(
         self,
         response_id: str,
-        is_positive: bool,
-        score: Optional[float] = None,
-        comments: Optional[str] = None
+        score: float
     ) -> Feedback:
-        """Record feedback for a response."""
+        """Record numeric feedback for a response."""
         # Verify response exists
         response = self.response_storage.get(response_id)
         if not response:
@@ -34,9 +32,7 @@ class FeedbackCollector:
         # Create and save feedback
         feedback = Feedback(
             response_id=response_id,
-            is_positive=is_positive,
-            score=score,
-            comments=comments
+            score=score
         )
         return self.feedback_storage.save(feedback)
 
@@ -64,9 +60,7 @@ class FeedbackCollector:
                         "response_id": response.id,
                         "prompt_instance_id": instance.id,
                         "prompt_id": prompt_id,
-                        "is_positive": feedback.is_positive,
                         "score": feedback.score,
-                        "comments": feedback.comments,
                         "created_at": feedback.created_at
                     }
                     
@@ -93,10 +87,10 @@ class FeedbackCollector:
             }
             
         total = len(feedback_items)
-        positive_count = sum(1 for item in feedback_items if item["is_positive"])
         scores = [item["score"] for item in feedback_items if item["score"] is not None]
-        
+
         # Calculate actual statistics
+        positive_count = sum(1 for s in scores if s >= 0.5)
         positive_ratio = positive_count / total if total > 0 else 0
         average_score = sum(scores) / len(scores) if scores else None
         

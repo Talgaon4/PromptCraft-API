@@ -53,11 +53,8 @@ response_id = optimizer.record_response(
 # Record feedback
 optimizer.record_feedback(
     response_id=response_id,
-    is_positive=True,
     score=0.8,
-    comments="Good summary!"
 )
-
 # Generate an optimization
 optimizer.optimize_prompt(prompt_id)
 ```
@@ -75,6 +72,17 @@ The interface allows you to:
 - Visualize prompt performance
 - Generate optimized versions automatically
 - Track version history
+
+## FastAPI Application
+
+To run the HTTP API with FastAPI:
+
+```bash
+uvicorn fastapi_app.main:app --reload
+```
+
+This server exposes endpoints for registering prompts, recording usage,
+submitting feedback and triggering optimizations.
 
 ## License
 
