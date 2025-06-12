@@ -7,14 +7,14 @@ from prompt_optimizer.api import PromptOptimizer
 
 @pytest.fixture
 def client(tmp_path):
-    # Replace the global optimizer with one using a temp directory
-    original_optimizer = main.optimizer
-    main.optimizer = PromptOptimizer(
+    """Create a TestClient with a temporary optimizer."""
+    optimizer = PromptOptimizer(
         storage_dir=str(tmp_path), optimization_threshold=2
     )
+    main.app.dependency_overrides[main.get_optimizer] = lambda: optimizer
     client = TestClient(main.app)
     yield client
-    main.optimizer = original_optimizer
+    main.app.dependency_overrides.clear()
 
 
 def test_fastapi_workflow(client):
