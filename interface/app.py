@@ -393,14 +393,8 @@ with tab3:
         st.subheader("Rate this response")
         
         col1, col2 = st.columns(2)
-        with col1:
-            is_positive = st.radio(
-                "Was this response good?", 
-                options=["Yes", "No"],
-                help="Select whether the response was helpful/correct"
-            ) == "Yes"
         
-        with col2:
+        with col1:
             score = st.slider(
                 "Score (0-1)", 
                 min_value=0.0, 
@@ -410,35 +404,20 @@ with tab3:
                 help="0 = Very bad, 1 = Excellent"
             )
         
-        comments = st.text_area(
-            "Comments (optional)", 
-            value="",
-            placeholder="What was good or bad about this response?",
-            height=100
-        )
         
         if st.button("Submit Feedback"):
             with st.spinner("Recording feedback..."):
                 feedback_result = optimizer.record_feedback(
                     response_id=response_id_for_feedback,
-                    is_positive=is_positive,
                     score=score,
-                    comments=comments.strip() if comments else None
                 )
-            
-            if feedback_result.success:
-                show_success(f"Feedback recorded with ID: {feedback_result.data['feedback_id']}")
-                
-                # Add to feedback history safely
                 try:
                     if 'current_prompt_id' in st.session_state:
                         st.session_state.feedback_history.append({
                             "id": feedback_result.data['feedback_id'],
                             "prompt_id": st.session_state.current_prompt_id,
                             "response_id": response_id_for_feedback,
-                            "is_positive": is_positive,
                             "score": score,
-                            "comments": comments,
                             "timestamp": datetime.now()
                         })
                 except Exception as history_error:
@@ -700,10 +679,8 @@ with tab6:
         st.subheader("Feedback History")
         
         for i, feedback in enumerate(st.session_state.feedback_history[-5:]):  # Show last 5
-            with st.expander(f"Feedback {i+1} - {'👍 Positive' if feedback['is_positive'] else '👎 Negative'}"):
+            with st.expander(f"Feedback {i+1} (score {feedback['score']})"):
                 st.write(f"**Prompt ID:** {feedback['prompt_id']}")
-                st.write(f"**Score:** {feedback['score']}")
-                st.write(f"**Comments:** {feedback['comments']}")
                 st.write(f"**Time:** {feedback['timestamp']}")
     else:
         st.info("No feedback data available yet")
